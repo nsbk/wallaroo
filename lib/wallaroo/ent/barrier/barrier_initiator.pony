@@ -115,7 +115,10 @@ actor BarrierInitiator is Initializable
     try
       _sources.remove(source_id)?
     else
-      Fail()
+      ifdef debug then
+        @printf[I32](("BarrierInitiator: Tried to remove Source %s, but it " +
+          "wasn't registered.\n").cstring(), source_id.string().cstring())
+      end
     end
 
   be add_worker(w: String) =>
