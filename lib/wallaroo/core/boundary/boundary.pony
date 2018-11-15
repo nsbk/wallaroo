@@ -178,13 +178,14 @@ actor OutgoingBoundary is Consumer
     ifdef "spike" then
       match spike_config
       | let sc: SpikeConfig =>
-        var notify = recover iso BoundaryNotify(_auth, this) end
+        var notify = recover iso BoundaryNotify(_auth, this, target_worker, 
+          host, service) end
         _notify = SpikeWrapper(consume notify, sc)
       else
-        _notify = BoundaryNotify(_auth, this)
+        _notify = BoundaryNotify(_auth, this, target_worker, host, service)
       end
     else
-      _notify = BoundaryNotify(_auth, this)
+      _notify = BoundaryNotify(_auth, this, target_worker, host, service)
     end
 
     _worker_name = worker_name
@@ -578,6 +579,7 @@ actor OutgoingBoundary is Consumer
     end
     _host = host
     _service = service
+    _notify.update_address(host, service)
     _reconnect()
 
   ///////////
@@ -1095,17 +1097,28 @@ class BoundaryNotify is WallarooOutgoingNetworkActorNotify
   let _auth: AmbientAuth
   var _header: Bool = true
   let _outgoing_boundary: OutgoingBoundary tag
+  let _target_worker: WorkerName
+  var _host: String
+  var _service: String
   let _reconnect_closed_delay: U64
   let _reconnect_failed_delay: U64
 
   new create(auth: AmbientAuth, outgoing_boundary: OutgoingBoundary tag,
+    t_worker: String, host: String, service: String,
     reconnect_closed_delay: U64 = 100_000_000,
     reconnect_failed_delay: U64 = 10_000_000_000)
     =>
     _auth = auth
     _outgoing_boundary = outgoing_boundary
+    _target_worker = t_worker
+    _host = host
+    _service = service
     _reconnect_closed_delay = reconnect_closed_delay
     _reconnect_failed_delay = reconnect_failed_delay
+
+  fun ref update_address(host: String, service: String) =>
+    _host = host
+    _service = service
 
   fun ref received(conn: WallarooOutgoingNetworkActor ref, data: Array[U8] iso,
     times: USize): Bool
@@ -1158,10 +1171,13 @@ class BoundaryNotify is WallarooOutgoingNetworkActorNotify
     end
 
   fun ref connecting(conn: WallarooOutgoingNetworkActor ref, count: U32) =>
-    @printf[I32]("BoundaryNotify: attempting to connect...\n\n".cstring())
+    @printf[I32]("BoundaryNotify: attempting to connect to %s at %s:%s...\n\n"
+      .cstring(), _target_worker.cstring(), _host.cstring(), 
+      _service.cstring())
 
   fun ref connected(conn: WallarooOutgoingNetworkActor ref) =>
-    @printf[I32]("BoundaryNotify: connected\n\n".cstring())
+    @printf[I32]("BoundaryNotify: connected to %s at %s:%s\n\n".cstring(),
+      _target_worker.cstring(), _host.cstring(), _service.cstring())
     match conn
     | let ob: OutgoingBoundary ref =>
       ob.resend_producer_registrations()
@@ -1172,10 +1188,11 @@ class BoundaryNotify is WallarooOutgoingNetworkActorNotify
     conn.expect(4)
 
   fun ref closed(conn: WallarooOutgoingNetworkActor ref) =>
-    @printf[I32]("BoundaryNotify: closed\n\n".cstring())
+    @printf[I32]("BoundaryNotify: closed connection to %s at %s\n\n".cstring(),
+      _target_worker.cstring(), _host.cstring(), _service.cstring())
 
   fun ref connect_failed(conn: WallarooOutgoingNetworkActor ref) =>
-    @printf[I32]("BoundaryNotify: connect_failed\n\n".cstring())
+    @printf[I32]("BoundaryNotify: connect_failed for connection to %s at %s:%s\n\n".cstring(), _target_worker.cstring(), _host.cstring(), _service.cstring())
 
   fun ref sentv(conn: WallarooOutgoingNetworkActor ref,
     data: ByteSeqIter): ByteSeqIter
@@ -1186,10 +1203,14 @@ class BoundaryNotify is WallarooOutgoingNetworkActorNotify
     qty
 
   fun ref throttled(conn: WallarooOutgoingNetworkActor ref) =>
-    @printf[I32]("BoundaryNotify: throttled\n\n".cstring())
+    @printf[I32]("BoundaryNotify: throttled connection to %s at %s:%s\n\n"
+      .cstring(), _target_worker.cstring(), _host.cstring(), 
+      _service.cstring())
 
   fun ref unthrottled(conn: WallarooOutgoingNetworkActor ref) =>
-    @printf[I32]("BoundaryNotify: unthrottled\n\n".cstring())
+    @printf[I32]("BoundaryNotify: unthrottled connection to %s at %s:%s\n\n"
+      .cstring(), _target_worker.cstring(), _host.cstring(), 
+      _service.cstring())
 
 class _PauseBeforeReconnect is TimerNotify
   let _ob: OutgoingBoundary
