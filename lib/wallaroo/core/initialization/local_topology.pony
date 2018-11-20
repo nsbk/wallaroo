@@ -207,6 +207,7 @@ class val LocalTopology
   fun ne(that: box->LocalTopology): Bool => not eq(that)
 
 actor LocalTopologyInitializer is LayoutInitializer
+  var _phase: LocalTopologyInitializerPhase = _ApplicationStartingPhase
   let _app_name: String
   let _worker_name: WorkerName
   let _env: Env
@@ -949,7 +950,8 @@ actor LocalTopologyInitializer is LayoutInitializer
         if _initializables.size() == 0 then
           @printf[I32](("Phases I-II skipped (this topology must only have " +
             "sources.)\n").cstring())
-          _application_ready_to_work()
+          _phase = _ApplicationInitializedPhase
+          _phase.application_ready_to_work(this)
         end
 
         if recovering_without_resilience then
@@ -1049,9 +1051,7 @@ actor LocalTopologyInitializer is LayoutInitializer
     if not _created.contains(initializable) then
       _created.set(initializable)
       if _created.size() == _initializables.size() then
-        @printf[I32]("|~~ INIT PHASE I: Application is created! ~~|\n"
-          .cstring())
-        _initializables.application_created(this)
+        _phase.application_created(this)
       end
     else
       @printf[I32]("The same Initializable reported being created twice\n"
@@ -1059,13 +1059,17 @@ actor LocalTopologyInitializer is LayoutInitializer
       Fail()
     end
 
+  fun ref application_created() =>
+    @printf[I32]("|~~ INIT PHASE I: Application is created! ~~|\n"
+      .cstring())
+    _phase = _ApplicationCreatedPhase
+    _initializables.application_created(this)
+
   be report_initialized(initializable: Initializable) =>
     if not _initialized.contains(initializable) then
       _initialized.set(initializable)
       if _initialized.size() == _initializables.size() then
-        @printf[I32]("|~~ INIT PHASE II: Application is initialized! ~~|\n"
-          .cstring())
-        _initializables.application_initialized(this)
+        _phase.application_initialized(this)
       end
     else
       @printf[I32]("The same Initializable reported being initialized twice\n"
@@ -1073,6 +1077,12 @@ actor LocalTopologyInitializer is LayoutInitializer
       // !TODO!: Bring this back and solve bug
       // Fail()
     end
+
+  fun ref application_initialized() =>
+    @printf[I32]("|~~ INIT PHASE II: Application is initialized! ~~|\n"
+      .cstring())
+    _phase = _ApplicationInitializedPhase
+    _initializables.application_initialized(this)
 
   be report_ready_to_work(initializable: Initializable) =>
     if not _ready_to_work.contains(initializable) then
@@ -1115,18 +1125,19 @@ actor LocalTopologyInitializer is LayoutInitializer
     Invariant(_ready_to_work.size() == _initializables.size())
 
     if _recovery_ready_to_work then
-      _application_ready_to_work()
+      _phase.application_ready_to_work(this)
     end
 
   be report_recovery_ready_to_work() =>
     _recovery_ready_to_work = true
     if _event_log_ready_to_work then
-      _application_ready_to_work()
+      _phase.application_ready_to_work(this)
     end
 
-  fun ref _application_ready_to_work() =>
+  fun ref application_ready_to_work() =>
     @printf[I32]("|~~ INIT PHASE III: Application is ready to work! ~~|\n"
       .cstring())
+    _phase = _ApplicationReadyToWorkPhase
     _spin_up_source_listeners()
     _initializables.application_ready_to_work(this)
 
