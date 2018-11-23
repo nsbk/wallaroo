@@ -175,13 +175,13 @@ def _wallaroo_wrap(name, func, base_cls, **kwargs):
 
         # Stateful
         if issubclass(base_cls, StateComputation):
-            state = kwargs.pop('state')  # This is a StateBuilder instance
-            print("state",state)
+            state_class = kwargs.pop('state_class')
             def comp(self, data, state):
             # def comp(data, state):
                 return func(data, state)
             def build_initial_state(self):
-                return state.initial_state()
+                return state_class()
+            _is_stateful = True
         # Stateless
         else:
             def comp(self, data):
@@ -360,7 +360,7 @@ def computation(name):
 def state_computation(name, state):
     def wrapped(func):
         _validate_arity_compatability(name, func, 2)
-        C = _wallaroo_wrap(name, func, StateComputation, state=StateBuilder(state))
+        C = _wallaroo_wrap(name, func, StateComputation, state_class=state)
         return C()
     return wrapped
 
@@ -374,16 +374,9 @@ def computation_multi(name):
 def state_computation_multi(name, state):
     def wrapped(func):
         _validate_arity_compatability(name, func, 2)
-        C = _wallaroo_wrap(name, func, StateComputationMulti, state=StateBuilder(state))
+        C = _wallaroo_wrap(name, func, StateComputationMulti, state_class=state)
         return C()
     return wrapped
-
-class StateBuilder(object):
-    def __init__(self, state_cls):
-        self.state_cls = state_cls
-
-    def initial_state(self):
-        return self.state_cls()
 
 def key_extractor(func):
     _validate_arity_compatability(func.__name__, func, 1)
