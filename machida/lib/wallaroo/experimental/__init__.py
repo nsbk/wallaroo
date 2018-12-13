@@ -79,6 +79,7 @@ class SourceConnector(object):
         self._host = host
         self._port = port
         self._conn = None
+        self.count = 0
 
     def connect(self, host=None, port=None):
         while True:
@@ -98,6 +99,13 @@ class SourceConnector(object):
             raise RuntimeError("Please call connect before writing")
         payload = self._encoder.encode(message, event_time, key)
         self._conn.sendall(payload)
+        self.count = self.count + 1
+        if self.count > 3:
+            self._conn.close()
+            self._conn = None
+            self.count = 0
+            time.sleep(0.25)
+            self.connect()
 
 
 class SinkConnector(object):
