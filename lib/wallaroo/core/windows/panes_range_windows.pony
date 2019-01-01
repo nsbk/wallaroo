@@ -33,7 +33,7 @@ use "wallaroo_labs/mort"
 class _PanesSlidingWindows[In: Any val, Out: Any val, Acc: State ref] is
   WindowsWrapper[In, Out, Acc]
   """
-  An panes-based sliding windows implementation that always recalculates
+  A panes-based sliding windows implementation that always recalculates
   the combination of all lowest level partial aggregations stored in panes.
   """
   var _panes: Array[(Acc | EmptyPane)]
