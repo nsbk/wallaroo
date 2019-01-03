@@ -52,15 +52,17 @@ class _PanesSlidingWindows[In: Any val, Out: Any val, Acc: State ref] is
   let _range: U64
   let _slide: U64
   let _delay: U64
+  let _late_data_policy: U16
 
   new create(key: Key, agg: Aggregation[In, Out, Acc], range: U64, slide: U64,
-    delay: U64, watermark_ts: U64)
+    delay: U64, late_data_policy: U16, watermark_ts: U64)
   =>
     _key = key
     _agg = agg
     _range = range
     _slide = slide
     _identity_acc = _agg.initial_accumulator()
+    _late_data_policy = late_data_policy
 
     (let pane_count, _pane_size, _panes_per_slide, _panes_per_window,
       _delay) = _InitializePaneParameters(range, slide, delay)
@@ -79,16 +81,17 @@ class _PanesSlidingWindows[In: Any val, Out: Any val, Acc: State ref] is
     (Array[Out] val, U64)
   =>
     try
+      var is_late_data = false
       (let earliest_ts, let end_ts) = _earliest_and_end_ts()?
 
       var applied = false
       if event_ts < end_ts then
-        _apply_input(input, event_ts, earliest_ts)
+        is_late_data = _apply_input(input, event_ts, earliest_ts)
         applied = true
       end
 
       // Check if we need to trigger and clear windows
-      (let outs, let output_watermark_ts) = attempt_to_trigger(watermark_ts)
+      (var outs, let output_watermark_ts) = attempt_to_trigger(watermark_ts)
 
       // If we haven't already applied the input, do it now.
       if not applied then
@@ -97,7 +100,35 @@ class _PanesSlidingWindows[In: Any val, Out: Any val, Acc: State ref] is
           _expand_windows(event_ts, new_end_ts)?
           new_earliest_ts = _earliest_ts()?
         end
-        _apply_input(input, event_ts, new_earliest_ts)
+        is_late_data = _apply_input(input, event_ts, new_earliest_ts)
+      end
+
+      if is_late_data then
+        @printf[I32]("!@ Got Late Data\n".cstring())
+        match _late_data_policy
+        | LateDataPolicy.drop() =>
+          @printf[I32]("!@ -- Drop policy\n".cstring())
+
+          ifdef debug then
+            @printf[I32]("Event ts %s is earlier than earliest window %s. Ignoring\n".cstring(), event_ts.string().cstring(), earliest_ts.string().cstring())
+          end
+        | LateDataPolicy.fire_per_message() =>
+          @printf[I32]("!@ -- Fire per message policy\n".cstring())
+          // TODO: Can we make outs a ref here to avoid this work?
+          let new_outs = recover iso Array[Out] end
+          for o in outs.values() do
+            new_outs.push(o)
+          end
+
+          let acc = _agg.initial_accumulator()
+          _agg.update(input, acc)
+          match _agg.output(_key, acc)
+          | let o: Out =>
+            @printf[I32]("!@ -- -- Pushing to new outs\n".cstring())
+            new_outs.push(o)
+            outs = consume new_outs
+          end
+        end
       end
 
       (outs, output_watermark_ts)
@@ -106,7 +137,9 @@ class _PanesSlidingWindows[In: Any val, Out: Any val, Acc: State ref] is
       (recover Array[Out] end, 0)
     end
 
-  fun ref _apply_input(input: In, event_ts: U64, earliest_ts: U64) =>
+  // Return true if the input is late, which means we need to handle it
+  // according to the late data policy.
+  fun ref _apply_input(input: In, event_ts: U64, earliest_ts: U64): Bool =>
     ifdef debug then
       try
         Invariant(event_ts < _earliest_and_end_ts()?._2)
@@ -129,10 +162,9 @@ class _PanesSlidingWindows[In: Any val, Out: Any val, Acc: State ref] is
       else
         Fail()
       end
+      false
     else
-      ifdef debug then
-        @printf[I32]("Event ts %s is earlier than earliest window %s. Ignoring\n".cstring(), event_ts.string().cstring(), earliest_ts.string().cstring())
-      end
+      true
     end
 
   fun ref attempt_to_trigger(input_watermark_ts: U64): (Array[Out] val, U64)

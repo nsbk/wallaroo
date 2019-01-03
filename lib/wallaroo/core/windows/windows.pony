@@ -35,6 +35,7 @@ class RangeWindowsBuilder
   var _range: U64
   var _slide: U64
   var _delay: U64
+  var _late_data_policy: U16 = LateDataPolicy.drop()
 
   new create(range: U64) =>
     _range = range
@@ -49,6 +50,10 @@ class RangeWindowsBuilder
     _delay = delay
     this
 
+  fun ref with_late_data_policy(p: U16): RangeWindowsBuilder =>
+    _late_data_policy = p
+    this
+
   fun ref over[In: Any val, Out: Any val, S: State ref](
     agg: Aggregation[In, Out, S]): StateInitializer[In, Out, S]
   =>
@@ -57,7 +62,8 @@ class RangeWindowsBuilder
         "But found slide " + _slide.string() + " for range " + _range.string())
     end
 
-    RangeWindowsStateInitializer[In, Out, S](agg, _range, _slide, _delay)
+    RangeWindowsStateInitializer[In, Out, S](agg, _range, _slide, _delay,
+      _late_data_policy)
 
 class CountWindowsBuilder
   var _count: USize
@@ -192,9 +198,10 @@ class val RangeWindowsStateInitializer[In: Any val, Out: Any val,
   let _range: U64
   let _slide: U64
   let _delay: U64
+  let _late_data_policy: U16
 
   new val create(agg: Aggregation[In, Out, Acc], range: U64, slide: U64,
-    delay: U64)
+    delay: U64, late_data_policy: U16)
   =>
     if range == 0 then
       FatalUserError("Range windows must have a range greater than 0!\n")
@@ -206,9 +213,11 @@ class val RangeWindowsStateInitializer[In: Any val, Out: Any val,
     _range = range
     _slide = slide
     _delay = delay
+    _late_data_policy = late_data_policy
 
   fun state_wrapper(key: Key): StateWrapper[In, Out, Acc] =>
-    RangeWindows[In, Out, Acc](key, _agg, _range, _slide, _delay)
+    RangeWindows[In, Out, Acc](key, _agg, _range, _slide, _delay,
+      _late_data_policy)
 
   fun val runner_builder(step_group_id: RoutingId, parallelization: USize):
     RunnerBuilder
@@ -249,10 +258,10 @@ class RangeWindows[In: Any val, Out: Any val, Acc: State ref] is
   var _phase: WindowsPhase[In, Out, Acc] = EmptyWindowsPhase[In, Out, Acc]
 
   new create(key: Key, agg: Aggregation[In, Out, Acc], range: U64, slide: U64,
-    delay: U64)
+    delay: U64, late_data_policy: U16 = LateDataPolicy.drop())
   =>
     let wrapper_builder = _SlidingWindowsWrapperBuilder[In, Out, Acc](key, agg,
-      range, slide, delay)
+      range, slide, delay, late_data_policy)
     _phase = InitialWindowsPhase[In, Out, Acc](this, wrapper_builder)
 
   fun ref apply(input: In, event_ts: U64, watermark_ts: U64):
@@ -307,19 +316,21 @@ class _SlidingWindowsWrapperBuilder[In: Any val, Out: Any val, Acc: State ref]
   let _range: U64
   let _slide: U64
   let _delay: U64
+  let _late_data_policy: U16
 
   new create(key: Key, agg: Aggregation[In, Out, Acc], range: U64, slide: U64,
-    delay: U64)
+    delay: U64, late_data_policy: U16)
   =>
     _key = key
     _agg = agg
     _range = range
     _slide = slide
     _delay = delay
+    _late_data_policy = late_data_policy
 
   fun ref apply(watermark_ts: U64): _PanesSlidingWindows[In, Out, Acc] =>
     _PanesSlidingWindows[In, Out, Acc](_key, _agg, _range, _slide, _delay,
-      watermark_ts)
+      _late_data_policy, watermark_ts)
 
 
 ////////////////////////////

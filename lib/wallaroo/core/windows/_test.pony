@@ -45,6 +45,10 @@ actor Main is TestList
     test(_TestSlidingWindowsSequence)
     test(_TestCountWindows)
 
+    // Late Data
+    test(_TestDropLateData)
+    test(_TestFireLateData)
+
     // Expand Windows
     test(_TestExpandSlidingWindow)
 
