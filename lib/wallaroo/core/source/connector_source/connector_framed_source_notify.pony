@@ -50,10 +50,6 @@ primitive _ProtoFsmError
 primitive _ProtoFsmDisconnected
   fun apply(): U8 => 5
 
-primitive _Credits
-  fun initial(): U32 => 10 // SLF TODO: make this configurable
-  fun low(): U32     =>  9 // SLF TODO: make this configurable
-
 class _StreamState
   var pending_query: Bool
   var base_point_of_reference: U64
@@ -91,18 +87,20 @@ class ConnectorSourceNotify[In: Any val]
   var _session_active: Bool = false
   var _session_tag: USize = 0
   var _fsm_state: _ProtoFsmState = _ProtoFsmDisconnected
-  // let _cookie: String = "dragons love tacos" // SLF TODO: configurable!
-  let _cookie: String = "1234" // SLF TODO: configurable!
+  let _cookie: String
+  let _max_credits: U32
+  let _refill_credits: U32
+  var _credits: U32 = 0
   var _program_name: String = ""
   var _instance_name: String = ""
-  var _credits: U32 = _Credits.initial()
   var _prep_for_rollback: Bool = false
 
   new iso create(source_id: RoutingId, pipeline_name: String, env: Env,
     auth: AmbientAuth, handler: FramedSourceHandler[In] val,
     runner_builder: RunnerBuilder, partitioner_builder: PartitionerBuilder,
     router': Router, metrics_reporter: MetricsReporter iso,
-    event_log: EventLog, target_router: Router)
+    event_log: EventLog, target_router: Router, cookie: String,
+    max_credits: U32, refill_credits: U32)
   =>
     _source_id = source_id
     _pipeline_name = pipeline_name
@@ -115,6 +113,9 @@ class ConnectorSourceNotify[In: Any val]
     _router = router'
     _metrics_reporter = consume metrics_reporter
     _header_size = _handler.header_length()
+    _cookie = cookie
+    _max_credits = max_credits
+    _refill_credits = refill_credits
 
   fun routes(): Map[RoutingId, Consumer] val =>
     _router.routes()
@@ -157,7 +158,8 @@ class ConnectorSourceNotify[In: Any val]
     end
 
     _credits = _credits - 1
-    if (_credits <= _Credits.low()) and (_fsm_state is _ProtoFsmStreaming) then
+    if (_credits <= _refill_credits) and
+        (_fsm_state is _ProtoFsmStreaming) then
       // Our client's credits are running low and we haven't replenished
       // them after barrier_complete() processing.  Replenish now.
       _send_ack()
@@ -472,7 +474,7 @@ class ConnectorSourceNotify[In: Any val]
     _session_active = true
     _session_tag = _session_tag + 1
     _stream_map.clear()
-    _credits = _Credits.initial()
+    _credits = _max_credits
     _prep_for_rollback = false
     source.expect(_header_size)
 
@@ -671,7 +673,7 @@ class ConnectorSourceNotify[In: Any val]
       session_tag, data.size())
 
     let w: Writer = w.create()
-    _credits = _Credits.initial()
+    _credits = _max_credits
      _send_reply(_connector_source, cwm.OkMsg(_credits, data))
 
     _fsm_state = _ProtoFsmStreaming
@@ -685,7 +687,7 @@ class ConnectorSourceNotify[In: Any val]
     _continue_perhaps2()
 
   fun ref _send_ack() =>
-    let new_credits = _Credits.initial() - _credits
+    let new_credits = _max_credits - _credits
     let cs: Array[(cwm.StreamId, cwm.PointOfRef)] trn =
       recover trn cs.create() end
 
