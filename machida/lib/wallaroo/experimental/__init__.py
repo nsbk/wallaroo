@@ -334,6 +334,7 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
         Replaces asynchat.async_chat.push, which does a synchronous send
         i.e. without calling `initiate_send()` at the end
         """
+        time.sleep(0.200)
         sabs = self.ac_out_buffer_size
         if len(data) > sabs:
             for i in xrange(0, len(data), sabs):
