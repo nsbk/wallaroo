@@ -43,10 +43,6 @@ class ProtocolError(Exception):
     pass
 
 
-class ConnectorUnknownMessageError(ConnectorError):
-  pass
-
-
 def stream_message_decoder(func):
     wallaroo._validate_arity_compatability(func.__name__, func, 1)
     C = wallaroo._wallaroo_wrap(func.__name__, func, wallaroo.ConnectorDecoder)
@@ -146,7 +142,7 @@ class SourceConnector(BaseConnector):
 Stream = namedtuple('Stream', ['id', 'name', 'point_of_ref', 'is_open'])
 
 
-class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConnector):
+class AtLeastOnceSourceConnector(asynchat.async_chat, BaseConnector):
     # TODO :
     # 1. implement credits based flow control
     # 2. revisit parse_connector_args
@@ -154,18 +150,19 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
     # and ignore the ones in the parsed params object is confusing and doesn't
     # make much sense to me. Ping Brian before making changes to this.
 
-    def __init__(self, args=None, required_params=['host', 'port'],
-                 optional_params=['timeout']):
+    def __init__(self, version, cookie, program_name, instance_name,
+                 args=None, required_params=['host', 'port'],
+                 optional_params=[]):
         # Use BaseConnector to do any argument parsing
         BaseConnector.__init__(self, args, required_params, optional_params)
 
         # connection details are given from the base
         self._port = int(self._port)  # but convert port to int
         self.credits = 0
-        if self.params.timeout:
-            self._timeout = float(self.params.timeout)
-        else:
-            self._timeout = 0.05
+        self.version = version
+        self.cookie = cookie
+        self.program_name = program_name
+        self.instance_name = instance_name
 
         # Stream details
         self._streams = {}  # stream_id: Stream
@@ -175,21 +172,55 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
         self.out_buffer = []
         self.reading_header = True
         self.set_terminator(4) # first frame header
+        self.error = None
 
-        # Thread details
-        threading.Thread.__init__(self)
-        self.daemon = True
+        # asyncore details
+        # Start a select-poll loop with an empty map
+        # as we connect, we will add the socket to the map once the
+        # synchronous handshake part is complete
+        self._socket_map = {}
+        self._asyncore_loop_timeout = 0.000001
+        self._loop_sentinel = threading.Event()
+        self._loop = threading.Thread(target=self._asyncore_loop)
+        self._loop.daemon = True
+        self._loop.start()
+
+        self._sent = 0
+
+        # allow the user to do a join(timeout=0)
+        self.stopped = threading.Event()
+
+    def join(self, timeout=None):
+        """
+        Block until all sources have been exhausted or the timeout elapses
+        if provided. If not timeout is provided this may block forever.
+        """
+        # wait for this
+        dt = 0.0001
+        if timeout is not None:
+            if dt > timeout:
+                dt == timeout
+        while True:
+            self.stopped.wait(dt)
+            if self.stopped.is_set():
+                break
+            else:
+                time.sleep(dt)
+
+    #############################################
+    # asyncore loop to run in background thread #
+    #############################################
+    def _asyncore_loop(self):
+        poll_fun = asyncore.poll
+
+        while not self._loop_sentinel.is_set():
+            poll_fun(timeout=self._asyncore_loop_timeout,
+                     map=self._socket_map)
+            time.sleep(self._asyncore_loop_timeout)
 
     ###########################
     # Incoming communications #
     ###########################
-
-    def run(self):
-        # only allow starting after handshake is complete
-        if not self.handshake_complete:
-            raise ProtocolError("Cannot start async loop before handshake"
-                                " is complete")
-        asyncore.loop(timeout=self._timeout)
 
     def collect_incoming_data(self, data):
         """Buffer the data"""
@@ -221,18 +252,22 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
             self._handle_ok(msg)
         elif isinstance(msg, cwm.Error):
             # Got error message from worker
-            # close the connection and pass msg to the error handler
-            self.close()
+            # close the connection and pass msg to the error handler but only
+            # if not in handshake. If in handshake, let the initiate_handshake
+            # function deal with this.
+            if not self.in_handshake:
+                self.close()
             raise ConnectorError(msg.message)
         elif isinstance(msg, cwm.NotifyAck):
             self._handle_notify_ack(msg)
         elif isinstance(msg, cwm.Ack):
             self._handle_ack(msg)
         elif isinstance(msg, cwm.Restart):
-            self.handle_restart(msg)
+            self.handle_restart()
         # messages that should only go connector->wallaroo
         # Notify, Hello, Message
         elif isinstance(msg, (cwm.Hello, cwm.Message, cwm.Notify)):
+            # TODO: send error to wallaroo before closing
             # close and raise error
             self.close()
             raise ProtocolError(
@@ -257,12 +292,9 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
             self.handshake_complete = True
             # set terminator to 4
             self.set_terminator(4)
-            # set socket to nonblocking
-            self._conn.setblocking(0)
-            # initialize the asynchat handler
-            asynchat.async_chat.__init__(self, sock=self._conn)
 
     def _handle_notify_ack(self, msg):
+        print("handle_notify_ack({})".format(msg))
         self.update_stream(msg.stream_id,
                            point_of_ref = msg.point_of_ref,
                            is_open = msg.notify_success)
@@ -280,7 +312,7 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
             new = Stream(stream_id, stream_name, point_of_ref, is_open)
         else:
             if stream_name is not None:
-                if old.name != steam_name:
+                if old.name != stream_name:
                     # stream collision... throw error and close connection
                     raise ConnectorError("Got wrong stream name for "
                                          "stream. Expected {} but got {}."
@@ -299,47 +331,114 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
     # Outoing communications #
     ##########################
 
-    def initiate_handshake(self, hello):
+    def connect(self):
         conn = socket.socket()
         conn.connect( (self._host, self._port) )
         self._conn = conn
+        self._conn.setblocking(1) # Set socket to blocking mode
 
         self.in_handshake = True
-        self.version = hello.version
-        self.cookie = hello.cookie
-        self.program_name = hello.program_name
-        self.instance_name = hello.instance_name
-        self._conn.setblocking(1) # Set socket to blocking mode
+        hello = cwm.Hello(self.version, self.cookie, self.program_name,
+                          self.instance_name)
         self._conn.sendall(cwm.Frame.encode(hello))
         header_bytes = self._conn.recv(4)
         frame_size = struct.unpack('>I', header_bytes)[0]
         frame = self._conn.recv(frame_size)
-        self._handle_frame(frame)
+        try:
+            self._handle_frame(frame)
+        except Exception as err:
+            # close the connection and raise the error
+            self._conn.close()
+            raise err
+        # set socket to nonblocking
+        self._conn.setblocking(0)
+        # handshake complete: initialize async_chat
+        asynchat.async_chat.__init__(self,
+                                     sock=self._conn,
+                                     map=self._socket_map)
+
+    def handle_write(self):
+        """
+        If class has `__next__` method, this will consume from it
+        while credits are available.
+        If no `__next__` is provided, behaviour is semi-synchronous in that
+        users must call `.write(msg)` directly in their own code, as well as
+        `shutdown()` to ensure the outgoing queue is flushed.
+        """
+        if hasattr(self, '__next__'):
+            try:
+                while self.credits > 0:
+                    msg = self.__next__()
+                    if msg:
+                        self.write(msg)
+                    else:
+                        break
+                self.initiate_send()
+            except StopIteration:
+                self.shutdown()
+        else:
+            self.initiate_send()
+
+    def shutdown(self, error=None):
+        t0 = time.time()
+        if error is None:
+            while self.producer_fifo and self.connected:
+                if time.time() - t0 > 5:
+                    raise TimeoutError("shutdown timed out after 5 seconds")
+                self.initiate_send()
+        self.del_channel(self._socket_map)
+        if isinstance(error, cwm.Error):
+            self._conn.setblocking(1)
+            self._conn.sendall(cwm.Frame.encode(error))
+        self.stopped.set()
+
+    def writable(self):
+        res = self.credits >= 0
+        return res
 
     def write(self, msg):
-        if not self.is_alive():
-            raise ConnectorError("Can't write to a closed conection")
-        if (isinstance(msg, (cwm.Error, cwm.Notify)) or
-            (msg.stream_id in self._streams and
-            self._streams[msg.stream_id].is_open)):
+        if isinstance(msg, cwm.Message):
+            # TODO: what to do when stream is closed?
+            # For now: if stream isn't open (or doesn't exist), raise error
+            try:
+                if self._streams[msg.stream_id].is_open:
+                    data = cwm.Frame.encode(msg)
+                    self._write(data)
+                    # use up 1 credit
+                    self.credits -= 1
+                else:
+                    raise
+            except:
+                raise ProtocolError("Message cannot be sent. Stream ({}) is "
+                                    "not in an open state. Use notify() to "
+                                    "open it."
+                                    .format(msg.stream_id))
+        elif isinstance(msg, cwm.Notify):
+            # write the message
+            data = cwm.Frame.encode(msg)
+            self._write(data)
+            # use up 1 credit
+            self.credits -= 1
+        elif isinstance(msg, cwm.Error):
+            # write the message
             data = cwm.Frame.encode(msg)
             self._write(data)
         else:
-            raise ProtocolError("Message cannot be sent. Stream ({}) is not "
-                                "in an open state. Use notify() to open it."
-                                .format(msg.stream_id))
+            raise ProtocolError("Can only send message types {{Hello, Notify, "
+                                "Message, Error}}. Received {}".format(msg))
 
     def _write(self, data):
         """
         Replaces asynchat.async_chat.push, which does a synchronous send
         i.e. without calling `initiate_send()` at the end
         """
-        sabs = self.ac_out_buffer_size
-        if len(data) > sabs:
-            for i in xrange(0, len(data), sabs):
-                self.producer_fifo.append(data[i:i+sabs])
-        else:
-            self.producer_fifo.append(data)
+        self._sent += 1
+        #sabs = self.ac_out_buffer_size
+        #if len(data) > sabs:
+        #    for i in xrange(0, len(data), sabs):
+        #        self.producer_fifo.append(data[i:i+sabs])
+        #else:
+        self.producer_fifo.append(data)
 
     def pending_sends(self):
         """
@@ -350,7 +449,12 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
         else:
             return False
 
+    def error(self, message):
+        print("WARNING: Sending error message: {}".format(message))
+        self.shutdown(error=message)
+
     def notify(self, stream_id, stream_name=None, point_of_ref=None):
+        print("notify: {}, {}, {}".format(stream_id, stream_name, point_of_ref))
         old = self._streams.get(stream_id, None)
         if old:
             if point_of_ref is None:
@@ -383,6 +487,7 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
         event_time must be either a datetime or a float of seconds since
         epoch (it may be negtive for dates before 1970-1-1)
         """
+        print("sending EOS: {} {}".format(stream_id, key))
         flags = cwm.Message.Eos | cwm.Message.Ephemeral
         if event_time is not None:
             flags |= cwm.Message.EventTime
@@ -409,11 +514,24 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
             event_time = ts,
             key = en_key,
             message = None)
+        print("EOS msg: {}".format(msg))
         self.write(msg)
 
     ########################
     # User defined methods #
     ########################
+
+    def handle_restarted(self):
+        """
+        Logic to execute after successfully completing a restart
+
+        The default is to send a new notify for every known stream.
+        User may override this to provide their own logic based on the state
+        of their sources.
+        """
+        # if restarting, send new notifys for existing streams to reopen them
+        for stream in self._streams.values():
+            self.notify(stream.id, stream.name, stream.point_of_ref)
 
     def stream_updated(self, stream):
         """
@@ -431,11 +549,20 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
         pass
 
     def handle_restart(self):
-        pass
+        print("WARNING: Received RESTART message. Closing streams and "
+              "reinitiating handshake.")
+        # reset credits
+        self.credits = 0
+        # close connection
+        self._conn.close()
+        # try to connect again
+        self.connect()
+        self.handle_restarted()
 
     def handle_error(self):
         """
         Default error handler: print a normal error traceback to sys.stderr
+        and close the connection.
 
         Users may override this with custom handlers
 
@@ -452,6 +579,9 @@ class AtLeastOnceSourceConnector(threading.Thread, asynchat.async_chat, BaseConn
         """
         _type, _value, _traceback = sys.exc_info()
         traceback.print_exception(_type, _value, _traceback)
+        print("ERROR: Closing the connection after encountering an error")
+        self.error = _value
+        self.close()
 
 
 class SinkConnector(object):
