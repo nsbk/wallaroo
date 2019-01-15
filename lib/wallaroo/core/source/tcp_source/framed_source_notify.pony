@@ -82,7 +82,7 @@ class TCPSourceNotify[In: Any val]
       true
     else
       _metrics_reporter.pipeline_ingest(_pipeline_name, _source_name)
-      let ingest_ts = Time.nanos()
+      let ingest_ts = WallClock.nanoseconds()
       let pipeline_time_spent: U64 = 0
       var latest_metrics_id: U16 = 1
 
