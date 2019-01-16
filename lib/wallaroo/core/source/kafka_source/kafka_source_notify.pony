@@ -78,7 +78,7 @@ class KafkaSourceNotify[In: Any val]
     network_received_timestamp: U64)
   =>
     _metrics_reporter.pipeline_ingest(_pipeline_name, _source_name)
-    let ingest_ts = Time.nanos()
+    let ingest_ts = WallClock.nanoseconds()
     let pipeline_time_spent: U64 = 0
     var latest_metrics_id: U16 = 1
 
@@ -106,7 +106,7 @@ class KafkaSourceNotify[In: Any val]
             end
             error
           end
-        let decode_end_ts = Time.nanos()
+        let decode_end_ts = WallClock.nanoseconds()
         _metrics_reporter.step_metric(_pipeline_name,
           "Decode Time in Kafka Source", latest_metrics_id, ingest_ts,
           decode_end_ts)
@@ -140,7 +140,7 @@ class KafkaSourceNotify[In: Any val]
       end
 
     if is_finished then
-      let end_ts = Time.nanos()
+      let end_ts = WallClock.nanoseconds()
       let time_spent = end_ts - ingest_ts
 
       ifdef "detailed-metrics" then
