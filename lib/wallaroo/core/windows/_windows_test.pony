@@ -19,6 +19,7 @@ Copyright 2018 The Wallaroo Authors.
 use "collections"
 use "ponytest"
 use "promises"
+use "random"
 use "wallaroo/core/aggregations"
 use "wallaroo/core/common"
 use "wallaroo/core/state"
@@ -35,7 +36,7 @@ class iso _TestTumblingWindows is UnitTest
     let slide = range
     let delay: U64 = Seconds(10)
     let tw = RangeWindows[USize, USize, _Total]("key", _Sum, range, slide,
-      delay)
+      delay, _Zeros)
 
     var res: ((USize | Array[USize] val | None), U64) =
       (recover Array[USize] end, 0)
@@ -92,7 +93,7 @@ class iso _TestSlidingWindows is UnitTest
     let slide: U64 = Seconds(2)
     let delay: U64 = Seconds(10)
     let sw = RangeWindows[USize, USize, _Total]("key", _Sum, range, slide,
-      delay)
+      delay, _Zeros)
 
     var res: ((USize | Array[USize] val | None), U64) =
       (recover Array[USize] end, 0)
@@ -229,7 +230,7 @@ class iso _TestSlidingWindowsNoDelay is UnitTest
     let slide: U64 = Seconds(2)
     let delay: U64 = Seconds(0)
     let sw = RangeWindows[USize, USize, _Total]("key", _Sum, range, slide,
-      delay)
+      delay, _Zeros)
 
     var res: ((USize | Array[USize] val | None), U64) =
       (recover Array[USize] end, 0)
@@ -325,7 +326,7 @@ class iso _TestSlidingWindowsOutOfOrder is UnitTest
     let slide: U64 = Seconds(2)
     let delay: U64 = Seconds(10)
     let sw = RangeWindows[USize, USize, _Total]("key", _Sum, range, slide,
-      delay)
+      delay, _Zeros)
 
     var res: ((USize | Array[USize] val | None), U64) =
       (recover Array[USize] end, 0)
@@ -415,7 +416,7 @@ class iso _TestSlidingWindowsGCD is UnitTest
     let slide: U64 = Seconds(3)
     let delay: U64 = Seconds(10)
     let sw = RangeWindows[USize, USize, _Total]("key", _Sum, range, slide,
-      delay)
+      delay, _Zeros)
 
     var res: ((USize | Array[USize] val | None), U64) =
       (recover Array[USize] end, 0)
@@ -532,7 +533,7 @@ class iso _TestSlidingWindowsLateData is UnitTest
     let slide: U64 = Seconds(2)
     let delay: U64 = Seconds(10)
     let sw = RangeWindows[USize, USize, _Total]("key", _Sum, range, slide,
-      delay)
+      delay, _Zeros)
 
     var res: ((USize | Array[USize] val | None), U64) =
       (recover Array[USize] end, 0)
@@ -592,7 +593,7 @@ class iso _TestSlidingWindowsEarlyData is UnitTest
     let slide: U64 = Seconds(2)
     let delay: U64 = Seconds(10)
     let sw = RangeWindows[USize, USize, _Total]("key", _Sum, range, slide,
-      delay)
+      delay, _Zeros)
 
     var res: ((USize | Array[USize] val | None), U64) =
       (recover Array[USize] end, 0)
@@ -705,7 +706,7 @@ class iso _TestSlidingWindowsStragglers is UnitTest
     let slide: U64 = Seconds(2)
     let delay: U64 = Seconds(1_000)
     let sw = RangeWindows[USize, USize, _Total]("key", _Sum, range, slide,
-      delay)
+      delay, _Zeros)
 
     // Last heard threshold of 100 seconds
     let watermarks = StageWatermarks(Seconds(100_000))
@@ -764,7 +765,7 @@ class iso _TestSlidingWindowsStragglersSequence is UnitTest
     let slide: U64 = Seconds(2)
     let delay: U64 = Seconds(1_000)
     let sw = RangeWindows[USize, Array[USize] val, Collected]("key",
-      _Collect, range, slide, delay)
+      _Collect, range, slide, delay, _Zeros)
 
     // Last heard threshold of 100 seconds
     let watermarks = StageWatermarks(Seconds(100_000))
@@ -860,7 +861,7 @@ class iso _TestSlidingWindowsSequence is UnitTest
     let slide: U64 = Seconds(25)
     let delay: U64 = Seconds(3000)
     let sw = RangeWindows[USize, Array[USize] val, Collected]("key",
-      _Collect, range, slide, delay)
+      _Collect, range, slide, delay, _Zeros)
 
     var res: ((Array[USize] val | Array[Array[USize] val] val | None), U64) =
       (recover Array[Array[USize] val] end, 0)
@@ -1084,3 +1085,7 @@ primitive CollectCheck
       false
     end
     true
+
+class _Zeros is Random
+  new ref create(x: U64 val = 0, y: U64 val = 0) => None
+  fun ref next(): U64 => 0
