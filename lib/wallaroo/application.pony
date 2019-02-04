@@ -61,6 +61,7 @@ trait BasicPipeline
   fun graph(): this->Dag[Stage]
   fun is_finished(): Bool
   fun size(): USize
+  fun worker_source_configs(): this->Map[String, WorkerSourceConfig]
 
 type Stage is (RunnerBuilder | SinkBuilder | Array[SinkBuilder] val |
   SourceConfigWrapper | RandomPartitionerBuilder | KeyPartitionerBuilder)
@@ -68,7 +69,11 @@ type Stage is (RunnerBuilder | SinkBuilder | Array[SinkBuilder] val |
 class Pipeline[Out: Any val] is BasicPipeline
   let _stages: Dag[Stage]
   let _dag_sink_ids: Array[RoutingId]
+  // map from source name to worker specific source config
+  let _worker_source_configs: Map[String, WorkerSourceConfig] =
+    _worker_source_configs.create()
   var _finished: Bool
+
 
   var _last_is_shuffle: Bool
   var _last_is_key_by: Bool
@@ -82,6 +87,12 @@ class Pipeline[Out: Any val] is BasicPipeline
     let sc_wrapper = SourceConfigWrapper(n, source_config)
     let source_id' = _stages.add_node(sc_wrapper)
     _dag_sink_ids.push(source_id')
+    _worker_source_configs.update(sc_wrapper.name(),
+      source_config.worker_source_config())
+    @printf[I32](("----WorkerSourceConfig Keys from `from_source`----\n").cstring())
+     for key in _worker_source_configs.keys() do
+       @printf[I32](("----key: " + key + "----\n").cstring())
+     end
 
   new create(stages: Dag[Stage] = Dag[Stage],
     dag_sink_ids: Array[RoutingId] = Array[RoutingId],
@@ -100,6 +111,10 @@ class Pipeline[Out: Any val] is BasicPipeline
   fun ref merge[MergeOut: Any val](pipeline: Pipeline[MergeOut]):
     Pipeline[(Out | MergeOut)]
   =>
+    @printf[I32](("----WorkerSourceConfig Keys from `merge`----\n").cstring())
+     for key in _worker_source_configs.keys() do
+       @printf[I32](("----key: " + key + "----\n").cstring())
+     end
     if _finished then
       _try_merge_with_finished_pipeline()
     elseif (_last_is_shuffle and not pipeline._last_is_shuffle) or
@@ -210,6 +225,13 @@ class Pipeline[Out: Any val] is BasicPipeline
     key_by(CollectKeyExtractor[Out](collect_key))
 
   fun graph(): this->Dag[Stage] => _stages
+
+  fun worker_source_configs(): this->Map[String, WorkerSourceConfig] =>
+    @printf[I32](("----WorkerSourceConfig Keys from function----\n").cstring())
+     for key in _worker_source_configs.keys() do
+       @printf[I32](("----key: " + key + "----\n").cstring())
+     end
+    _worker_source_configs
 
   fun size(): USize => _stages.size()
 

@@ -66,8 +66,8 @@ actor TCPSourceListener[In: Any val] is SourceListener
   let _target_router: Router
   let _parallelism: USize
   let _handler: FramedSourceHandler[In] val
-  let _host: String
-  let _service: String
+  let _source_config: TCPSourceConfig[In]
+  let _worker_source_config: WorkerTCPSourceConfig
 
   var _fd: U32
   var _event: AsioEventID = AsioEvent.none()
@@ -87,9 +87,9 @@ actor TCPSourceListener[In: Any val] is SourceListener
     outgoing_boundary_builders: Map[String, OutgoingBoundaryBuilder] val,
     event_log: EventLog, auth: AmbientAuth,
     layout_initializer: LayoutInitializer,
-    recovering: Bool, target_router: Router = EmptyRouter, parallelism: USize,
-    handler: FramedSourceHandler[In] val,
-    host: String = "", service: String = "0",
+    recovering: Bool, target_router: Router = EmptyRouter,
+    source_config: TCPSourceConfig[In],
+    worker_source_config: WorkerTCPSourceConfig,
     init_size: USize = 64, max_size: USize = 16384)
   =>
     """
@@ -110,14 +110,15 @@ actor TCPSourceListener[In: Any val] is SourceListener
     _layout_initializer = layout_initializer
     _recovering = recovering
     _target_router = target_router
-    _parallelism = parallelism
-    _handler = handler
-    _host = host
-    _service = service
+    _parallelism = source_config.parallelism
+    _handler = source_config.handler
+    _source_config = source_config
+    _worker_source_config = worker_source_config
 
     _event = @pony_os_listen_tcp[AsioEventID](this,
-      host.cstring(), service.cstring())
-    _limit = parallelism
+      _worker_source_config.host.cstring(),
+      _worker_source_config.service.cstring())
+    _limit = _parallelism
     _init_size = init_size
     _max_size = max_size
     _fd = @pony_asio_event_fd(_event)
@@ -132,7 +133,8 @@ actor TCPSourceListener[In: Any val] is SourceListener
     end
 
     @printf[I32]((pipeline_name + " source attempting to listen on "
-      + host + ":" + service + "\n").cstring())
+      + _worker_source_config.host + ":" + _worker_source_config.service +
+      "\n").cstring())
     _notify_listening()
 
     for i in Range(0, _limit) do

@@ -114,6 +114,7 @@ class val SourceData
   fun parallelism(): USize => 1
 
   fun source_listener_builder_builder(): SourceListenerBuilderBuilder =>
+    @printf[I32](("Calling source_listener_builder_builder() from SourceData\n").cstring())
     _source_listener_builder_builder
 
 class val EgressBuilder
