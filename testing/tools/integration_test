@@ -538,11 +538,13 @@ def CLI():
                 for k, v in args._get_kwargs():
                     logging.debug('%s: %r' % (k, v))
                 pipeline_test(
-                    generator = args.generators,
+                    # NH: change the generators arg to be [(gen, source_name), ...]
+                    generator = args.generators,   # list or tuple of data generators and source index [(gen, src_idx), ...]
                     expected = args.expected_val,
                     command = args.command,
                     workers = args.workers,
-                    sources = args.sources,
+                    # NH: drop this sources argument
+                    sources = args.sources,        # this is an integer
                     sinks = args.sinks,
                     mode = args.sink_mode,
                     batch_size = args.batch_size,

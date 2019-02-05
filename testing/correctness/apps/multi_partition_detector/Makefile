@@ -77,7 +77,7 @@ multi_partition_detector_test_python:
 	integration_test \
 	  --sequence-sender '(0,100]' 0 '>I' key_0 \
 	  --sequence-sender '(0,100]' 0 '>I' key_1 \
-	  --log-level error \
+	  --log-level debug \
 		--command 'machida --application-module multi_partition_detector $(RUN_WITH_RESILIENCE)' \
 		--validation-cmd './validator/validator -e 100 -a -i' \
 		--output 'received.txt' \
