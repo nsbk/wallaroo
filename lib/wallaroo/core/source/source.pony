@@ -47,7 +47,7 @@ class val SourceConfigWrapper
   fun name(): String => _name
   fun source_config(): SourceConfig => _source_config
 
-interface val WorkerSourceConfig
+trait val WorkerSourceConfig
 
 trait tag Source is (Producer & DisposableActor & BoundaryUpdatable &
   StatusReporter)
