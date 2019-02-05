@@ -41,13 +41,13 @@ MULTI_PARTITION_DETECTOR_PATH := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 include $(rules_mk_path)
 
 
-build-testing-correctness-apps-multi_partition_detector: build-machida
-build-testing-correctness-apps-multi_partition_detector: build-machida3
+#build-testing-correctness-apps-multi_partition_detector: build-machida
+#build-testing-correctness-apps-multi_partition_detector: build-machida3
 build-testing-correctness-apps-multi_partition_detector: build-testing-correctness-apps-multi_partition_detector-validator
 integration-tests-testing-correctness-apps-multi_partition_detector: build-testing-correctness-apps-multi_partition_detector
 integration-tests-testing-correctness-apps-multi_partition_detector: multi_partition_detector_tests_pony
-integration-tests-testing-correctness-apps-multi_partition_detector: multi_partition_detector_tests_python
-integration-tests-testing-correctness-apps-multi_partition_detector: multi_partition_detector_tests_python3
+#integration-tests-testing-correctness-apps-multi_partition_detector: multi_partition_detector_tests_python
+#integration-tests-testing-correctness-apps-multi_partition_detector: multi_partition_detector_tests_python3
 
 # group the tests by target API (Pony, Python, Python3)
 # Pony
@@ -77,7 +77,7 @@ multi_partition_detector_test_python:
 	integration_test \
 	  --sequence-sender '(0,100]' 0 '>I' key_0 \
 	  --sequence-sender '(0,100]' 0 '>I' key_1 \
-	  --log-level debug \
+	  --log-level error \
 		--command 'machida --application-module multi_partition_detector $(RUN_WITH_RESILIENCE)' \
 		--validation-cmd './validator/validator -e 100 -a -i' \
 		--output 'received.txt' \
@@ -197,9 +197,9 @@ multi_partition_detector_test_python3_gen_source_10_worker:
 multi_partition_detector_test_pony:
 	cd $(MULTI_PARTITION_DETECTOR_PATH) && \
 	integration_test \
-	  --sequence-sender '(0,100]' 0 '>I' key_0 \
-	  --sequence-sender '(0,100]' 0 '>I' key_1 \
-	  --log-level error \
+	  --sequence-sender '(0,100]' Detector '>I' key_0 \
+	  --sequence-sender '(0,100]' Detector '>I' key_1 \
+	  --log-level debug \
 		--command './multi_partition_detector $(RUN_WITH_RESILIENCE)' \
 		--validation-cmd './validator/validator -e 100 -a -i' \
 		--output 'received.txt' \

@@ -226,7 +226,7 @@ class Runner(threading.Thread):
 
 
 BASE_COMMAND = r'''{command} \
-    {in_block} \
+    {{in_block}} \
     {out_block} \
     --metrics {metrics_addr} \
     --resilience-dir {res_dir} \
@@ -266,10 +266,6 @@ def start_runners(runners, command, source_addrs, sink_addrs, metrics_addr,
                   res_dir, workers, worker_addrs=[], alt_block=None,
                   alt_func=lambda x: False, spikes={}):
     cmd_stub = BASE_COMMAND.format(command=command,
-                                   in_block=(
-                                       IN_BLOCK.format(inputs=','.join(
-                                           source_addrs))
-                                       if source_addrs else ''),
                                    out_block=(
                                        OUT_BLOCK.format(outputs=','.join(
                                            sink_addrs))
@@ -296,6 +292,11 @@ def start_runners(runners, command, source_addrs, sink_addrs, metrics_addr,
             worker_count=WORKER_COUNT_CMD.format(worker_count=workers),
             data_addr=worker_addrs[0][1],
             external_addr=worker_addrs[0][2]),
+        in_block=(
+            IN_BLOCK.format(inputs=','.join(
+                '{}@{}'.format(src_nm, addr)
+                for src_nm, addr in source_addrs.items()))
+            if source_addrs else ''),
         worker_block='',
         join_block=CONTROL_CMD.format(control_addr=worker_addrs[0][0]),
         alt_block=alt_block if alt_func(x) else '',
@@ -317,6 +318,7 @@ def start_runners(runners, command, source_addrs, sink_addrs, metrics_addr,
             spike_block = ''
         cmd = cmd_stub.format(name='worker{}'.format(x),
                               initializer_block='',
+                              in_block='',
                               worker_block=WORKER_CMD.format(
                                   control_addr=worker_addrs[x][0],
                                   data_addr=worker_addrs[x][1],
@@ -365,10 +367,7 @@ def add_runner(worker_id, runners, command, source_addrs, sink_addrs, metrics_ad
                my_control_addr, my_data_addr, my_external_addr,
                alt_block=None, alt_func=lambda x: False, spikes={}):
     cmd_stub = BASE_COMMAND.format(command=command,
-                                   in_block=(
-                                       IN_BLOCK.format(inputs=','.join(
-                                           source_addrs))
-                                       if source_addrs else ''),
+                                   in_block='',
                                    out_block=(
                                        OUT_BLOCK.format(outputs=','.join(
                                            sink_addrs))
@@ -443,7 +442,7 @@ SinkData = namedtuple('SinkData',
 
 
 class Cluster(object):
-    def __init__(self, command, host='127.0.0.1', sources=1, workers=1,
+    def __init__(self, command, host='127.0.0.1', sources=[], workers=1,
             sinks=1, sink_mode='framed', worker_join_timeout=30,
             is_ready_timeout=30, res_dir=None, persistent_data={}):
         # Create attributes
@@ -456,7 +455,7 @@ class Cluster(object):
         self.dead_workers = TypedList(types=(Runner,))
         self.restarted_workers = TypedList(types=(Runner,))
         self.runners = TypedList(types=(Runner,))
-        self.source_addrs = []
+        self.source_addrs = {}
         self.sink_addrs = []
         self.sinks = []
         self.senders = []
@@ -496,13 +495,20 @@ class Cluster(object):
                                .format(*map(str,s.get_connection_info()))
                                for s in self.sinks]
 
-            num_ports = sources + 3 * workers
+            # TODO [NH]: should each worker gets a copy of each named source
+            # or should each named source only have one instance?
+            # how is this expressed?
+            # - each instance needs an address...
+            # - for now only have one instance... e.g. using `len(sources)` below
+            num_ports = len(sources) + 3 * workers
             ports = get_port_values(num=num_ports, host=host)
             addresses = ['{}:{}'.format(host, p) for p in ports]
-            (self.source_addrs, worker_addrs) = (
-                addresses[:sources],
-                [addresses[sources:][i:i+3]
-                 for i in range(0, len(addresses[sources:]), 3)])
+            (source_addrs, worker_addrs) = (
+                addresses[:len(sources)],
+                [addresses[len(sources):][i:i+3]
+                 for i in range(0, len(addresses[len(sources):]), 3)])
+            for src_name, addr in zip(sources, source_addrs):
+                self.source_addrs[src_name] = addr
             start_runners(self.workers, self.command, self.source_addrs,
                           self.sink_addrs,
                           self.metrics_addr, self.res_dir, workers,
