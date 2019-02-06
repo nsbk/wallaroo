@@ -165,7 +165,9 @@ def pipeline_test(sources, expected, command, workers=1,
                     sources = [sources]
                 for gen, src_name in sources:
                     reader = Reader(gen)
-                    sender = Sender(cluster.source_addrs[src_name], reader,
+                    # TODO [NH]: figure out how to support sending to workers
+                    # other than initializer via command parameters
+                    sender = Sender(cluster.source_addrs[0][src_name], reader,
                                     batch_size=batch_size,
                                     interval=sender_interval)
                     cluster.add_sender(sender)

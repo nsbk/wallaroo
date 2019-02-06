@@ -199,7 +199,7 @@ multi_partition_detector_test_pony:
 	integration_test \
 	  --sequence-sender '(0,100]' Detector '>I' key_0 \
 	  --sequence-sender '(0,100]' Detector '>I' key_1 \
-	  --log-level debug \
+	  --log-level error \
 		--command './multi_partition_detector $(RUN_WITH_RESILIENCE)' \
 		--validation-cmd './validator/validator -e 100 -a -i' \
 		--output 'received.txt' \
@@ -212,7 +212,6 @@ multi_partition_detector_test_pony_gen_source:
 	integration_test \
 	  --log-level error \
 		--command './multi_partition_detector --gen-source $(RUN_WITH_RESILIENCE)' \
-		--sources 0 \
 		--validation-cmd './validator/validator -a -i' \
 		--output 'received.txt' \
 		--batch-size 10 \
@@ -223,16 +222,16 @@ multi_partition_detector_test_pony_gen_source:
 multi_partition_detector_test_pony_10_worker:
 	cd $(MULTI_PARTITION_DETECTOR_PATH) && \
 	integration_test \
-	  --sequence-sender '(0,1000]' 0 '>I' key_0 \
-	  --sequence-sender '(0,1000]' 0 '>I' key_1 \
-	  --sequence-sender '(0,1000]' 0 '>I' key_2 \
-	  --sequence-sender '(0,1000]' 0 '>I' key_3 \
-	  --sequence-sender '(0,1000]' 0 '>I' key_4 \
-	  --sequence-sender '(0,1000]' 0 '>I' key_5 \
-	  --sequence-sender '(0,1000]' 0 '>I' key_6 \
-	  --sequence-sender '(0,1000]' 0 '>I' key_7 \
-	  --sequence-sender '(0,1000]' 0 '>I' key_8 \
-	  --sequence-sender '(0,1000]' 0 '>I' key_9 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_0 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_1 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_2 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_3 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_4 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_5 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_6 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_7 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_8 \
+	  --sequence-sender '(0,1000]' Detector '>I' key_9 \
 	  --log-level error \
 		--command './multi_partition_detector $(RUN_WITH_RESILIENCE)' \
 		--validation-cmd './validator/validator -e 1000 -a -i' \
@@ -246,7 +245,6 @@ multi_partition_detector_test_pony_gen_source_10_worker:
 	integration_test \
 	  --log-level error \
 		--command './multi_partition_detector --gen-source $(RUN_WITH_RESILIENCE)' \
-		--sources 0 \
 		--validation-cmd './validator/validator -a -i' \
 		--output 'received.txt' \
 		--batch-size 10 \

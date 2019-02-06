@@ -295,7 +295,7 @@ def start_runners(runners, command, source_addrs, sink_addrs, metrics_addr,
         in_block=(
             IN_BLOCK.format(inputs=','.join(
                 '{}@{}'.format(src_nm, addr)
-                for src_nm, addr in source_addrs.items()))
+                for src_nm, addr in source_addrs[0].items()))
             if source_addrs else ''),
         worker_block='',
         join_block=CONTROL_CMD.format(control_addr=worker_addrs[0][0]),
@@ -318,7 +318,11 @@ def start_runners(runners, command, source_addrs, sink_addrs, metrics_addr,
             spike_block = ''
         cmd = cmd_stub.format(name='worker{}'.format(x),
                               initializer_block='',
-                              in_block='',
+                              in_block=(
+                                  IN_BLOCK.format(inputs=','.join(
+                                      '{}@{}'.format(src_nm, addr)
+                                      for src_nm, addr in source_addrs[x].items()))
+                                  if source_addrs else ''),
                               worker_block=WORKER_CMD.format(
                                   control_addr=worker_addrs[x][0],
                                   data_addr=worker_addrs[x][1],
@@ -367,7 +371,6 @@ def add_runner(worker_id, runners, command, source_addrs, sink_addrs, metrics_ad
                my_control_addr, my_data_addr, my_external_addr,
                alt_block=None, alt_func=lambda x: False, spikes={}):
     cmd_stub = BASE_COMMAND.format(command=command,
-                                   in_block='',
                                    out_block=(
                                        OUT_BLOCK.format(outputs=','.join(
                                            sink_addrs))
@@ -399,6 +402,11 @@ def add_runner(worker_id, runners, command, source_addrs, sink_addrs, metrics_ad
                               control_addr=my_control_addr,
                               data_addr=my_data_addr,
                               external_addr=my_external_addr),
+                          in_block=(
+                              IN_BLOCK.format(inputs=','.join(
+                                  '{}@{}'.format(src_nm, addr)
+                                  for src_nm, addr in source_addrs.items()))
+                              if source_addrs else ''),
                           join_block=JOIN_CMD.format(
                               join_addr=control_addr,
                               worker_count=(WORKER_COUNT_CMD.format(
@@ -455,7 +463,8 @@ class Cluster(object):
         self.dead_workers = TypedList(types=(Runner,))
         self.restarted_workers = TypedList(types=(Runner,))
         self.runners = TypedList(types=(Runner,))
-        self.source_addrs = {}
+        self.source_names = sources
+        self.source_addrs = []
         self.sink_addrs = []
         self.sinks = []
         self.senders = []
@@ -495,20 +504,22 @@ class Cluster(object):
                                .format(*map(str,s.get_connection_info()))
                                for s in self.sinks]
 
-            # TODO [NH]: should each worker gets a copy of each named source
-            # or should each named source only have one instance?
-            # how is this expressed?
-            # - each instance needs an address...
-            # - for now only have one instance... e.g. using `len(sources)` below
-            num_ports = len(sources) + 3 * workers
+            # TODO: when support for different per-worker sourced defs is
+            # available, figure out how to allocate sources to workers here
+            sources = len(self.source_names)
+            num_ports = (sources + 3) * workers
             ports = get_port_values(num=num_ports, host=host)
             addresses = ['{}:{}'.format(host, p) for p in ports]
             (source_addrs, worker_addrs) = (
-                addresses[:len(sources)],
-                [addresses[len(sources):][i:i+3]
-                 for i in range(0, len(addresses[len(sources):]), 3)])
-            for src_name, addr in zip(sources, source_addrs):
-                self.source_addrs[src_name] = addr
+                addresses[:sources*workers],
+                [addresses[sources*workers:][i:i+3]
+                 for i in range(0, len(addresses[sources*workers:]), 3)])
+            # Construct a list of {name: addr} dicts, one dict for each worker
+            for i in range(workers):
+                d = dict(zip(self.source_names,
+                             source_addrs[i * sources: (i+1) * sources]))
+                if d:
+                    self.source_addrs.append(d)
             start_runners(self.workers, self.command, self.source_addrs,
                           self.sink_addrs,
                           self.metrics_addr, self.res_dir, workers,
@@ -545,11 +556,21 @@ class Cluster(object):
             by, timeout, with_test))
         pre_partitions = self.get_partition_data() if with_test else None
         runners = []
-        new_ports = get_port_values(num = 3 * by,
+        sources = len(self.source_names)
+        new_ports = get_port_values(num = (sources + 3) * by,
                                     host = self.host,
                                     base_port=25000)
-        addrs = [["{}:{}".format(self.host, p) for p in new_ports[i*3: i*3 + 3]]
-                 for i in range(by)]
+        # format all the addresses to host:port using self.host
+        addrs = ["{}:{}".format(self.host, p) for p in new_ports]
+        # split addresses into worker_addrs and source_addrs
+        worker_addrs = [addrs[i*3: i*3 + 3] for i in range(by)]
+        addrs = addrs[3*by:]
+        for i in range(by):
+            d = dict(zip(
+                         self.source_names,
+                         addrs[i*sources: (i+1)*source]))
+            if d:
+                self.source_addrs.append(d)
         for x in range(by):
             runner = add_runner(
                 worker_id=self._worker_id_counter,

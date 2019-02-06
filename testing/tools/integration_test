@@ -347,24 +347,24 @@ def CLI():
           (https://docs.python.org/2/library/struct.html#format-characters).
           Default: '>I'
         ''')
-    gens.add_argument('--framed-file-sender', dest='sources',
+    gens.add_argument('--framed-file-sender', dest='sources', default=[],
                       action=FramedGenAction, nargs='+',
                       metavar=('filepaths', 'source_name', 'header_format'),
                       help=("Send values from a comma-separated list of "
                            "files."))
-    gens.add_argument('--newline-file-sender', dest='sources',
+    gens.add_argument('--newline-file-sender', dest='sources', default=[],
                       action=NewlineGenAction, nargs='+',
                       metavar=('filepaths', 'source_name', 'header_format'),
                       help=("Send values form a comma-separated list of "
                             "files that use newlines to separate records."))
-    gens.add_argument('--sequence-sender', dest='sources',
+    gens.add_argument('--sequence-sender', dest='sources', default=[],
                       action=SeqGenAction, nargs='+',
                       metavar=('range', 'source_name', 'header_format',
                                'partition'),
                       help=("Send values from the set of integers "
                             "(start,stop]"))
-    gens.add_argument('--csv-sender', dest='sources', action=CSVGenAction,
-                      nargs='+',
+    gens.add_argument('--csv-sender', dest='sources', default=[],
+                      action=CSVGenAction, nargs='+',
                       metavar=('item1,item2,...', 'source_name', 'header_format'),
                       help="Send values from a comma delimited string")
 
